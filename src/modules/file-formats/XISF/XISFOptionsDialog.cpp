@@ -122,9 +122,12 @@ Dialog(), imageOptions( o ), xisfOptions( x ), outputHints( h )
    Compression_Sizer.AddStretch();
 
    const char* compressionLevelToolTip =
-      "<p>Zlib compression level between 1 and 9. A value of one gives the fastest compression, "
+      "<p>Zlib compression level between 1 and 9, and 10+11 using different algorithms. "
+      "A value of one gives the fastest compression, "
       "while 9 gives the best compression ratio at the expense of more computation time. The default "
-      "compression level is 6, which is a compromise between speed and compression efficiency.</p>";
+      "compression level is 6, which is a compromise between speed and compression efficiency. Level 10 "
+      "is like level 9 with a bitshuffle, which often improves compression efficiency. Level 11 "
+      "is bitshuffle with lz4 as compression algorithm.</p>";
 
    CompressionLevel_Label.SetText( "Compression level:" );
    CompressionLevel_Label.SetToolTip( compressionLevelToolTip );
@@ -132,9 +135,9 @@ Dialog(), imageOptions( o ), xisfOptions( x ), outputHints( h )
    CompressionLevel_Label.SetTextAlignment( TextAlign::Right|TextAlign::VertCenter );
    CompressionLevel_Label.Enable( xisfOptions.compressData );
 
-   CompressionLevel_SpinBox.SetRange( int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION ) );
+   CompressionLevel_SpinBox.SetRange( int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION +2) );
    CompressionLevel_SpinBox.SetToolTip( compressionLevelToolTip );
-   CompressionLevel_SpinBox.SetValue( Range( xisfOptions.compressionLevel, uint8( Z_BEST_SPEED ), uint8( Z_BEST_COMPRESSION ) ) );
+   CompressionLevel_SpinBox.SetValue( Range( xisfOptions.compressionLevel, uint8( Z_BEST_SPEED ), uint8( Z_BEST_COMPRESSION +2) ) );
    CompressionLevel_SpinBox.Enable( xisfOptions.compressData );
 
    CompressionLevel_Sizer.SetSpacing( 4 );

@@ -15,7 +15,7 @@
 
 .PHONY: all
 all: 
-	$(MAKE) -f ./makefile-x64 --no-print-directory
+	$(MAKE) -f ./makefile-x64-gv --no-print-directory
 
 .PHONY: clean
 clean:

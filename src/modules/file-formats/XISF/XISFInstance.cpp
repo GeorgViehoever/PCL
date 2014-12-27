@@ -193,7 +193,7 @@ public:
                break;
             int n;
             if ( i->TryToInt( n ) )
-               compressionLevel = uint8( Range( n, int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION ) ) );
+               compressionLevel = uint8( Range( n, int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION +1 ) ) );
          }
          else if ( *i == "block-alignment" )
          {

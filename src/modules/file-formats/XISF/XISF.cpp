@@ -61,6 +61,92 @@
 
 #include <zlib/zlib.h>
 
+extern "C" {
+#include "bitshuffle/src/bitshuffle.h"
+}
+#define BSHUF_BLOCKED_MULT 8    // Block sizes must be multiple of this. Should be part of bitshuffle.h
+
+#include <cassert>
+#include <pcl/Console.h>
+#include <pcl/ProcessInterface.h>
+#ifdef __PCL_WINDOWS
+#  include <time.h>
+#else
+#  include <sys/time.h>
+#endif
+
+namespace {
+  // largely from GradientsBase, to measure run times
+  
+#ifdef __PCL_WINDOWS
+
+#define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
+
+  int gettimeofday( timeval* tv, void*/*not_used*/ )
+  {
+    if ( tv != 0 )
+    {
+      FILETIME ft;
+      GetSystemTimeAsFileTime( &ft );
+      
+      uint64 t = ft.dwHighDateTime;
+      t <<= 32;
+      t |= ft.dwLowDateTime;
+      
+      // convert file time to unix epoch
+      t -= DELTA_EPOCH_IN_MICROSECS;
+      t /= 10;  /*convert into microseconds*/
+      tv->tv_sec = (long)(t / 1000000UL);
+      tv->tv_usec = (long)(t % 1000000UL);
+    }
+    return 0;
+  }
+
+#endif   // __PCL_WINDOWS
+
+  class StopWatch
+  {
+    pcl::String m_sMessage;
+    bool m_bRunning;
+    timeval m_tStart;
+  public:
+    /// implies start of stopWatch
+    StopWatch(const pcl::String &rsMessage_p)
+      :m_sMessage(rsMessage_p)
+      ,m_bRunning(true)
+    {
+      gettimeofday(&m_tStart,0);
+      pcl::Console().WriteLn(pcl::String("Start: ")+m_sMessage);
+      pcl::ProcessInterface::ProcessEvents ();
+    }
+    
+    void Stop()
+    {
+      m_bRunning=false;
+      timeval endTv;
+      gettimeofday( &endTv, 0 );
+      double seconds = (endTv.tv_sec - m_tStart.tv_sec) +
+	(endTv.tv_usec - m_tStart.tv_usec)/1000000.0;
+      double minutes, hours;
+      pcl::Split( seconds/60, minutes, seconds ); seconds *= 60;
+      pcl::Split( minutes/60, hours, minutes ); minutes *= 60;
+      pcl::Console().WriteLn( "Stop: "
+			      + m_sMessage
+			      + ". Time used: "
+			      + pcl::String().Format( "%2d:%02d:%06.3f", int( hours ), int( minutes ), seconds ) );
+      pcl::ProcessInterface::ProcessEvents ();
+    }
+
+    ~StopWatch()
+    {
+      if(m_bRunning)
+      {
+	Stop();
+      }
+    }
+  }; //class StopWatch
+} //namespace anon
+
 // ----------------------------------------------------------------------------
 
 /*
@@ -501,12 +587,57 @@ struct XISFInputDataBlock
 
    void UncompressData()
    {
+     /* Benchmark data as observed on console:
+/home/georg/tmp/milkyway_processed_compressed_11.xisfgv
+Loading image: w=2594 h=3908 n=3 RGB Float32
+Uncompressing block: 1.782 KiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.000
+1.984 KiB (10.19%)
+46 FITS keyword(s) extracted.
+ICC profile extracted: 'sRGB', 2032 bytes.
+Uncompressing block: 94.585 MiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.127
+116.013 MiB (18.47%)
+
+/home/georg/tmp/pixinsight_benchmark_v1_compressed_11.xisfgv
+Loading image: w=1024 h=1024 n=3 RGB Float32
+18 FITS keyword(s) extracted.
+Uncompressing block: 4.603 KiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.000
+8.164 KiB (43.62%)
+ICC profile extracted: 'sRGB', 8360 bytes.
+Uncompressing block: 9.505 MiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.011
+12.000 MiB (20.79%)
+
+/home/georg/tmp/superbias_compressed_11.xisfgv
+Loading image: w=3908 h=2602 n=1 Gray Float32
+46 FITS keyword(s) extracted.
+Uncompressing block: 20.544 MiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.036
+38.790 MiB (47.04%)
+
+/home/georg/tmp/Planets_float_compressed_11.xisfgv
+Loading image: w=800 h=800 n=3 RGB Float32
+16 FITS keyword(s) extracted.
+Uncompressing block: 6.569 KiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.000
+11.812 KiB (44.39%)
+ICC profile extracted: 'sRGB', 12092 bytes.
+Uncompressing block: 1.556 MiB -> Start: UncompressData
+Stop: UncompressData. Time used:  0:00:00.010
+7.324 MiB (78.76%)
+
+     */
       if ( HasData() )
          if ( IsCompressed() )
          {
+	    StopWatch stopWatch("UncompressData");
+
             if ( uncompressedSize == 0 || uncompressedSize >= uint32( -1 ) )
                throw Error( "Internal error: Invalid uncompressed data size." );
-
+#if 0
+	    // zip version
             ByteArray uncompressedData = ByteArray( size_type( uncompressedSize ) );
             unsigned long resultSize = uint32( uncompressedSize );
             int result = ::uncompress( uncompressedData.Begin(), &resultSize, data.Begin(), (unsigned long)data.Length() );
@@ -517,6 +648,30 @@ struct XISFInputDataBlock
 
             data = uncompressedData;
             compressed = false;
+#else
+	    // FIXME Hardcoded level 11 version (bitshuffle with lz4)
+	    // We would need information about the compression level (10,11),elemSize,blockSize here.
+	    // For the moment everything is hardcoded...
+	    // just assuming float (4 bytes) here
+	    const std::size_t elemSize=4;
+
+            ByteArray uncompressedData = ByteArray( size_type( uncompressedSize ) );
+	    // uncompressedSize apparently is the size without padding.
+	    // pad to size needed by uncompression
+	    if(uncompressedData.Length()%BSHUF_BLOCKED_MULT!=0)
+	    {
+	      // Assure suitable size by padding
+	      uncompressedData.Append(0,BSHUF_BLOCKED_MULT-uncompressedData.Length()%BSHUF_BLOCKED_MULT);
+	    }
+	    assert(uncompressedData.Length()%BSHUF_BLOCKED_MULT==0);
+            const int64_t eCode = bshuf_decompress_lz4(&data[0], &uncompressedData[0],uncompressedData.Length()/elemSize,elemSize,0);
+            if ( eCode<0)
+               throw Error( "Failed to uncompress block data. bshuf_decompress_lz4() error code="+ String( eCode ) );
+            if ( size_t( eCode ) != data.Length())
+               throw Error( "Failed to uncompress block data: Uncompressed data size mismatch." );
+            data = uncompressedData;
+            compressed = false;
+#endif	    
          }
    }
 };
@@ -2719,8 +2874,199 @@ struct XISFOutputBlock
 
    void CompressData( int level )
    {
+     /* Benchmark data as observed on console
+Writing file:
+/home/georg/tmp/milkyway_processed_compressed_9.xisfgv
+Writing image: w=2594 h=3908 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 116.013 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:09.034
+97.577 MiB (15.89%)
+46 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 1.984 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.002
+763 B (62.45%)
+ICC profile embedded: 'sRGB', 2032 bytes.
+
+/home/georg/tmp/milkyway_processed_compressed_10.xisfgv
+Writing image: w=2594 h=3908 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 116.013 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:08.205
+91.642 MiB (21.01%)
+46 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 1.984 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.002
+1.674 KiB (15.65%)
+ICC profile embedded: 'sRGB', 2032 bytes.
+
+Writing image: w=2594 h=3908 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 116.013 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.279
+94.585 MiB (18.47%)
+46 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 1.984 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.003
+1.782 KiB (10.19%)
+ICC profile embedded: 'sRGB', 2032 bytes.
+
+/home/georg/tmp/pixinsight_benchmark_v1_compressed_9.xisfgv
+Writing image: w=1024 h=1024 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 12.000 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.531
+10.613 MiB (11.56%)
+18 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 8.164 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.002
+3.037 KiB (62.80%)
+ICC profile embedded: 'sRGB', 8360 bytes.
+
+/home/georg/tmp/pixinsight_benchmark_v1_compressed_10.xisfgv
+Writing image: w=1024 h=1024 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 12.000 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.847
+9.294 MiB (22.55%)
+18 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 8.164 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.003
+4.232 KiB (48.16%)
+ICC profile embedded: 'sRGB', 8360 bytes.
+
+/home/georg/tmp/pixinsight_benchmark_v1_compressed_11.xisfgv
+Writing image: w=1024 h=1024 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 12.000 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.043
+9.505 MiB (20.79%)
+18 FITS keyword(s) embedded.
+Padding for shuffle: 0 B
+Compressing block: 8.164 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.005
+4.603 KiB (43.62%)
+ICC profile embedded: 'sRGB', 8360 bytes.
+
+/home/georg/tmp/superbias_compressed_9.xisfgv
+Writing image: w=3908 h=2602 n=1 Gray Float32
+Padding for shuffle: 0 B
+Compressing block: 38.790 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:06.524
+22.805 MiB (41.21%)
+46 FITS keyword(s) embedded.
+
+/home/georg/tmp/superbias_compressed_10.xisfgv
+Writing image: w=3908 h=2602 n=1 Gray Float32
+Padding for shuffle: 0 B
+Compressing block: 38.790 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:01.333
+17.632 MiB (54.55%)
+46 FITS keyword(s) embedded.
+
+/home/georg/tmp/superbias_compressed_11.xisfgv
+Writing image: w=3908 h=2602 n=1 Gray Float32
+Padding for shuffle: 0 B
+Compressing block: 38.790 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:01.333
+17.632 MiB (54.55%)
+46 FITS keyword(s) embedded.
+
+/home/georg/tmp/Planets_float_compressed_9.xisfgv
+Writing image: w=800 h=800 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 7.324 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.342
+643.714 KiB (91.42%)
+16 FITS keyword(s) embedded.
+Padding for shuffle: 4 B
+Compressing block: 11.809 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.003
+4.375 KiB (62.95%)
+ICC profile embedded: 'sRGB', 12092 bytes.
+
+/home/georg/tmp/Planets_float_compressed_10.xisfgv
+Writing image: w=800 h=800 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 7.324 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:01.678
+1.002 MiB (86.32%)
+16 FITS keyword(s) embedded.
+Padding for shuffle: 4 B
+Compressing block: 11.809 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.004
+6.005 KiB (49.15%)
+ICC profile embedded: 'sRGB', 12092 bytes.
+
+/home/georg/tmp/Planets_float_compressed_11.xisfgv
+Writing image: w=800 h=800 n=3 RGB Float32
+Padding for shuffle: 0 B
+Compressing block: 7.324 MiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.029
+1.556 MiB (78.76%)
+16 FITS keyword(s) embedded.
+Padding for shuffle: 4 B
+Compressing block: 11.809 KiB -> Start: CompressData
+Stop: CompressData. Time used:  0:00:00.005
+6.569 KiB (44.37%)
+ICC profile embedded: 'sRGB', 12092 bytes.
+     */
+     
       if ( HasData() )
       {
+	StopWatch stopWatch("CompressData");
+	if (level==11)
+	{
+	  // do bitshuffle with lz4
+	  if(data.Length()%BSHUF_BLOCKED_MULT!=0)
+	  {
+	    // Assure suitable size by padding
+	    data.Append(0,BSHUF_BLOCKED_MULT-data.Length()%BSHUF_BLOCKED_MULT);
+	  }
+	  assert(data.Length()%BSHUF_BLOCKED_MULT==0);
+	  // FIXME would be nice to have information here if this is float, double, complex, ...
+	  // just assuming float here
+	  const std::size_t elemSize=4;
+
+	  const size_t compressedSize=bshuf_compress_lz4_bound(data.Length(),elemSize,0);
+	  ByteArray compressedData = ByteArray(compressedSize);
+	  const int64_t eCode=bshuf_compress_lz4(&data[0],&compressedData[0],data.Length()/elemSize,elemSize,0);
+	  if(eCode<0)
+	  {
+	    throw Error( "Internal error: bshuf_compress_lz4() returned" + String( eCode ) );
+	  }
+	  data = ByteArray( compressedData.Begin(), compressedData.At( eCode) );
+	  compressed=true;
+	  return;
+	}
+	
+	if (level==10)
+	{
+	  // do bit shuffle, then zip with level  9
+	  if(data.Length()%BSHUF_BLOCKED_MULT!=0)
+	  {
+	    // Assure suitable size by padding
+	    data.Append(0,BSHUF_BLOCKED_MULT-data.Length()%BSHUF_BLOCKED_MULT);
+	  }
+	  assert(data.Length()%BSHUF_BLOCKED_MULT==0);
+	  // FIXME would be nice to have information here if this is float, double, complex, ...
+	  // just assuming float here
+	  const std::size_t elemSize=4;
+	  ByteArray shuffledData(data.Length());
+	  const int64_t eCode=bshuf_bitshuffle(&data[0],&shuffledData[0],data.Length()/elemSize,elemSize,0);
+	  if(eCode<0)
+	  {
+	    throw Error( "Internal error: bshuf_bitshuffle() returned" + String( eCode ) );
+	  }
+	  data=shuffledData;
+	  level=9;
+	}
+
          unsigned long compressedSize = ::compressBound( uint32( data.Length() ) );
          ByteArray compressedData = ByteArray( size_type( compressedSize ) );
          int result = ::compress2( compressedData.Begin(), &compressedSize, data.Begin(), uint32( data.Length() ), level );
@@ -3419,6 +3765,7 @@ private:
       size_type uncompressedSize = block.data.Length();
       if ( m_xisfOptions.verbosity > 0 )
       {
+	 m_console.Write( "<end><cbr>Padding for shuffle: "+ File::SizeAsString(uncompressedSize%BSHUF_BLOCKED_MULT));
          m_console.Write( "<end><cbr>Compressing block: " + File::SizeAsString( uncompressedSize ) + " -> " );
          Module->ProcessEvents();
       }

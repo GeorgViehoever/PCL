@@ -114,8 +114,11 @@ Dialog(), overrides( e ), options( o )
    Compression_Sizer.AddStretch();
 
    const char* compressionLevelToolTip =
-      "<p>Zlib compression level between 1 and 9. A value of one gives the fastest compression, "
-      "while 9 gives the best compression ratio at the expense of more computation time. The default "
+      "<p>Zlib compression level between 1 and 9, with 10+11 using different algorithms. "
+      "A value of one gives the fastest compression, "
+      "while 9 gives the best compression ratio at the expense of more computation time. The value of "
+      "10 is equivalent to ZLib compression level 9 plus shuffle of data, which usually gives better "
+      "compession results. 11 is bitshuffle+lz4 compression. The default "
       "compression level is 6, which is a compromise between speed and compression efficiency.</p>";
 
    CompressionLevel_Label.SetText( "Compression level:" );
@@ -124,9 +127,9 @@ Dialog(), overrides( e ), options( o )
    CompressionLevel_Label.SetTextAlignment( TextAlign::Right|TextAlign::VertCenter );
    CompressionLevel_Label.Enable( options.compressData );
 
-   CompressionLevel_SpinBox.SetRange( int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION ) );
+   CompressionLevel_SpinBox.SetRange( int( Z_BEST_SPEED ), int( Z_BEST_COMPRESSION +2) );
    CompressionLevel_SpinBox.SetToolTip( compressionLevelToolTip );
-   CompressionLevel_SpinBox.SetValue( Range( options.compressionLevel, uint8( Z_BEST_SPEED ), uint8( Z_BEST_COMPRESSION ) ) );
+   CompressionLevel_SpinBox.SetValue( Range( options.compressionLevel, uint8( Z_BEST_SPEED ), uint8( Z_BEST_COMPRESSION +2) ) );
    CompressionLevel_SpinBox.Enable( options.compressData );
 
    CompressionLevel_Sizer.SetSpacing( 4 );
@@ -314,7 +317,7 @@ void XISFPreferencesDialog::__Button_Click( Button& sender, bool checked )
       IgnoreFITSKeywords_CheckBox.SetChecked( defaultOptions.ignoreFITSKeywords );
       ImportFITSKeywords_CheckBox.SetChecked( defaultOptions.importFITSKeywords );
       Compression_CheckBox.SetChecked( defaultOptions.compressData );
-      CompressionLevel_SpinBox.SetValue( Range( defaultOptions.compressionLevel, uint8( 1 ), uint8( 9 ) ) );
+      CompressionLevel_SpinBox.SetValue( Range( defaultOptions.compressionLevel, uint8( Z_BEST_SPEED ), uint8( Z_BEST_COMPRESSION +2 ) ) );
       AlignmentSize_SpinBox.SetValue( defaultOptions.blockAlignmentSize );
       MaxInlineSize_SpinBox.SetValue( defaultOptions.maxInlineBlockSize );
    }

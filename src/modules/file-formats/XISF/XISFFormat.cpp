@@ -64,22 +64,22 @@ XISFFormat::XISFFormat() : MetaFileFormat()
 
 IsoString XISFFormat::Name() const
 {
-   return "XISF";
+   return "XISFgv";
 }
 
 StringList XISFFormat::FileExtensions() const
 {
    StringList exts;
-   exts.Add( ".xisf" );
-   exts.Add( ".xis" );
+   exts.Add( ".xisfgv" );
+   exts.Add( ".xisgv" );
    return exts;
 }
 
 IsoStringList XISFFormat::MimeTypes() const
 {
    IsoStringList mimes;
-   mimes.Add( "image/xisf" );
-   mimes.Add( "application/xisf" );
+   mimes.Add( "image/xisfgv" );
+   mimes.Add( "application/xisfgv" );
    return mimes;
 }
 
@@ -93,7 +93,7 @@ String XISFFormat::Description() const
    return
 
    "<html>"
-   "<p>Extensible Image Serialization Format (XISF)"
+   "<p>Extensible Image Serialization Format (XISF) GV Variant"
    "</html>";
 }
 

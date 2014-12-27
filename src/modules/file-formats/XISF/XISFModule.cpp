@@ -48,12 +48,12 @@
 
 #define MODULE_VERSION_MAJOR     01
 #define MODULE_VERSION_MINOR     00
-#define MODULE_VERSION_REVISION  00
-#define MODULE_VERSION_BUILD     0023
+#define MODULE_VERSION_REVISION  01
+#define MODULE_VERSION_BUILD     0024
 #define MODULE_VERSION_LANGUAGE  eng
 
 #define MODULE_RELEASE_YEAR      2014
-#define MODULE_RELEASE_MONTH     11
+#define MODULE_RELEASE_MONTH     12
 #define MODULE_RELEASE_DAY       30
 
 #include "XISFModule.h"
@@ -79,12 +79,12 @@ const char* XISFModule::Version() const
 
 IsoString XISFModule::Name() const
 {
-   return "XISF";
+   return "XISFgv";
 }
 
 String XISFModule::Description() const
 {
-   return "Extensible Image Serialization Format (XISF) - PixInsight Standard XISF File Format Module";
+   return "Extensible Image Serialization Format (XISF) GV Variant- PixInsight Standard XISF File Format Module";
 }
 
 String XISFModule::Company() const
@@ -110,16 +110,16 @@ String XISFModule::TradeMarks() const
 String XISFModule::OriginalFileName() const
 {
 #ifdef __PCL_FREEBSD
-   return "XISF-pxm.so";
+   return "XISFgv-pxm.so";
 #endif
 #ifdef __PCL_LINUX
-   return "XISF-pxm.so";
+   return "XISFgv-pxm.so";
 #endif
 #ifdef __PCL_MACOSX
-   return "XISF-pxm.dylib";
+   return "XISFgv-pxm.dylib";
 #endif
 #ifdef __PCL_WINDOWS
-   return "XISF-pxm.dll";
+   return "XISFgv-pxm.dll";
 #endif
 }
 
